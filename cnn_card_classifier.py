@@ -248,16 +248,37 @@ class CNNCardClassifier:
         return accuracy, y_pred_classes
     
     def save_model(self, filepath='cnn_card_model.h5'):
-        """Save the trained model"""
+        """Save the trained model and label encoder"""
+        # Save the Keras model
         self.model.save(filepath)
+        
+        # Save the label encoder separately
+        encoder_filepath = filepath.replace('.h5', '_encoder.pkl')
+        import pickle
+        with open(encoder_filepath, 'wb') as f:
+            pickle.dump(self.label_encoder, f)
+        
         print(f"Model saved to {filepath}")
+        print(f"Label encoder saved to {encoder_filepath}")
     
     def load_model(self, filepath='cnn_card_model.h5'):
-        """Load a trained model"""
+        """Load a trained model and label encoder"""
         if os.path.exists(filepath):
+            # Load the Keras model
             self.model = keras.models.load_model(filepath)
-            print(f"Model loaded from {filepath}")
-            return True
+            
+            # Load the label encoder
+            encoder_filepath = filepath.replace('.h5', '_encoder.pkl')
+            if os.path.exists(encoder_filepath):
+                import pickle
+                with open(encoder_filepath, 'rb') as f:
+                    self.label_encoder = pickle.load(f)
+                print(f"Model and label encoder loaded from {filepath}")
+                return True
+            else:
+                print(f"Warning: Label encoder file {encoder_filepath} not found")
+                print("You may need to retrain the model to get the label encoder")
+                return False
         else:
             print(f"Model file {filepath} not found")
             return False
@@ -265,7 +286,10 @@ class CNNCardClassifier:
     def predict_single_image(self, image):
         """Predict the card in a single image"""
         if self.model is None:
-            return "Model not loaded"
+            return "Model not loaded", 0.0
+        
+        if self.label_encoder is None:
+            return "Label encoder not loaded", 0.0
         
         # Preprocess the image
         if len(image.shape) == 3:
@@ -287,14 +311,29 @@ class CNNCardClassifier:
         confidence = prediction[0][predicted_class]
         
         # Get class name
-        class_name = self.label_encoder.inverse_transform([predicted_class])[0]
+        try:
+            class_name = self.label_encoder.inverse_transform([predicted_class])[0]
+        except Exception as e:
+            class_name = f"Class_{predicted_class}"
+            print(f"Warning: Could not decode class name: {e}")
         
         return class_name, confidence
     
+    def is_model_ready(self):
+        """Check if both model and label encoder are properly loaded"""
+        if self.model is None:
+            return False, "Model not loaded"
+        if self.label_encoder is None:
+            return False, "Label encoder not loaded"
+        return True, "Model ready"
+    
     def start_camera(self):
         """Start real-time camera prediction"""
-        if self.model is None:
-            print("Please load or train a model first!")
+        # Check if model is ready
+        is_ready, message = self.is_model_ready()
+        if not is_ready:
+            print(f"Error: {message}")
+            print("Please train a new model or ensure both model and label encoder are loaded.")
             return
         
         cap = cv2.VideoCapture(0)
@@ -419,9 +458,17 @@ def main():
     # Check if model already exists
     print("\nStep 2: Model Loading")
     print("-" * 30)
-    if classifier.load_model():
+    model_loaded = classifier.load_model()
+    if model_loaded:
         print("Loaded existing model!")
-    else:
+        # Verify the model is ready
+        is_ready, message = classifier.is_model_ready()
+        if not is_ready:
+            print(f"Warning: {message}")
+            print("The model file exists but is incomplete. Retraining...")
+            model_loaded = False
+    
+    if not model_loaded:
         print("Training new model...")
         
         try:

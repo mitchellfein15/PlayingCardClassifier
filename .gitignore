@@ -3,3 +3,4 @@ README_CNN.md
 check_classes.py
 training_history.png
 cnn_card_model.h5
+cnn_card_model_encoder.pkl
